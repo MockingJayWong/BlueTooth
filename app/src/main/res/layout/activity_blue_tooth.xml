@@ -9,16 +9,20 @@
     android:paddingTop="@dimen/activity_vertical_margin"
     tools:context="com.example.administrator.bluetooth.BlueToothActivity">
     <Button android:id="@+id/btn" android:layout_width="wrap_content"
-        android:layout_height="wrap_content" android:text="Search devices" />
-    <TextView android:id="@+id/title" android:layout_below="@id/btn"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="BlueTooth SearchList"
-        android:textSize="20dp"/>
-    <ListView android:layout_below="@id/title" android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:id="@+id/listview">
+       android:contextClickable="true" android:layout_height="wrap_content" android:text="Search devices" />
+    <Button android:id="@+id/btn2" android:layout_toRightOf="@id/btn" android:layout_width="wrap_content"
+        android:contextClickable="true" android:layout_height="wrap_content" android:text="Accept devices" />
 
-    </ListView>
 
+    <Button android:layout_below="@id/btn2" android:text="关闭连接" android:layout_width="wrap_content" android:layout_height="wrap_content" android:id="@+id/closebtn"/>
+
+    <EditText android:id="@+id/send_msg" android:layout_width="200dp" android:layout_height="wrap_content"
+        android:layout_below="@id/closebtn"  />
+    <Button android:layout_below="@id/closebtn" android:id="@+id/send_btn" android:layout_width="wrap_content" android:layout_toRightOf="@id/send_msg"
+        android:layout_height="wrap_content" android:text="send" />
+    <ListView android:layout_below="@id/send_btn" android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:id="@+id/listview">
+
+</ListView>
 </RelativeLayout>
