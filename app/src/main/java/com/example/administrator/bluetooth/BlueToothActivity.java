@@ -1,46 +1,42 @@
 package com.example.administrator.bluetooth;
 
-import android.bluetooth.BluetoothAdapter;
-import android.bluetooth.BluetoothDevice;
-import android.bluetooth.BluetoothServerSocket;
-import android.bluetooth.BluetoothSocket;
-import android.content.BroadcastReceiver;
-import android.content.Context;
-import android.content.Intent;
-import android.content.IntentFilter;
-import android.content.PeriodicSync;
-import android.os.Handler;
-import android.os.HandlerThread;
-import android.os.Looper;
-import android.os.Message;
-import android.support.v7.app.AppCompatActivity;
-import android.os.Bundle;
-import android.util.Log;
-import android.view.View;
-import android.widget.AdapterView;
-import android.widget.ArrayAdapter;
-import android.widget.Button;
-import android.widget.EditText;
-import android.widget.ListView;
-import android.widget.Toast;
 
-import java.io.BufferedOutputStream;
-import java.io.BufferedReader;
-import java.io.BufferedWriter;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.io.OutputStreamWriter;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.UUID;
+        import android.bluetooth.BluetoothAdapter;
+        import android.bluetooth.BluetoothDevice;
+        import android.bluetooth.BluetoothServerSocket;
+        import android.bluetooth.BluetoothSocket;
+        import android.content.BroadcastReceiver;
+        import android.content.Context;
+        import android.content.Intent;
+        import android.content.IntentFilter;
+        import android.os.Handler;
+        import android.os.HandlerThread;
+        import android.os.Looper;
+        import android.os.Message;
+        import android.support.v7.app.AppCompatActivity;
+        import android.os.Bundle;
+        import android.util.Log;
+        import android.view.View;
+        import android.widget.AdapterView;
+        import android.widget.ArrayAdapter;
+        import android.widget.Button;
+        import android.widget.EditText;
+        import android.widget.ListView;
+        import android.widget.Toast;
+
+
+        import java.io.IOException;
+        import java.io.OutputStream;
+        import java.util.ArrayList;
+        import java.util.List;
+        import java.util.Objects;
+        import java.util.UUID;
+
 
 public class BlueToothActivity extends AppCompatActivity {
-
     private static final UUID MY_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
-
-    private Thread myThread;
+    private BluetoothSocket socket;
+    private Thread AcceptPushThread;
     private List<String> devices;
     private List<BluetoothDevice> deviceList;
     private ArrayAdapter<String> mAdaptor;
@@ -48,8 +44,10 @@ public class BlueToothActivity extends AppCompatActivity {
     //想调用蓝牙模块，就必须获得下面的adapter实例。
     private BluetoothAdapter bluetoothAdapter;
     private BlueToothReceiver blueToothReceiver;
+
+    private  Object obj = new Object();
     private boolean search_mutex;
-    private boolean IsOpen;
+    private volatile boolean IsOpen;
     private Handler subhandler;
 
     //宠物
@@ -101,12 +99,15 @@ public class BlueToothActivity extends AppCompatActivity {
 
 
         //Accept
-        myThread = new AcceptThread();
+        AcceptPushThread = new AcceptThread();
+
         Button btn2 = (Button)findViewById(R.id.btn2);
         btn2.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                myThread.start();
+                IsOpen = true;
+                AcceptPushThread.start();
+
             }
         });
 
@@ -184,13 +185,12 @@ public class BlueToothActivity extends AppCompatActivity {
                 }
             }
             mAdaptor.notifyDataSetChanged();
-            Toast.makeText(context,"search finished", Toast.LENGTH_SHORT);
+            Toast.makeText(context,"search finished", Toast.LENGTH_SHORT).show();
             search_mutex = false;
         }
     }
 
     private class ConnectThread extends Thread {
-        private  BluetoothSocket mmSocket;
         private final BluetoothDevice mmDevice;
         private String sendMessage = "";
 
@@ -206,7 +206,7 @@ public class BlueToothActivity extends AppCompatActivity {
                 // MY_UUID is the app's UUID string, also used by the server code
                 tmp = device.createRfcommSocketToServiceRecord(MY_UUID);
             } catch (IOException e) { }
-            mmSocket = tmp;
+            socket = tmp;
         }
 
 
@@ -218,12 +218,14 @@ public class BlueToothActivity extends AppCompatActivity {
                 // Connect the device through the socket. This will block
                 // until it succeeds or throws an exception
                 Log.i("TAG","thread start");
-                mmSocket.connect();
+                socket.connect();
                 IsOpen = true;
 
-                HandlerThread handlerthread = new HandlerThread("ReceiveAndPush");
-                handlerthread.start();
-                subhandler = new Handler(handlerthread.getLooper()) {
+                //接受线程的开启
+                new ManageSocket().start();
+
+                Looper.prepare();
+                subhandler = new Handler() {
                     @Override
                     public void handleMessage(Message msg) {
                         try {
@@ -231,23 +233,23 @@ public class BlueToothActivity extends AppCompatActivity {
                                 //msg send
                                 case 0:
                                     sendMessage = msg.obj.toString();
-                                    mmSocket.getOutputStream().write(sendMessage.getBytes());
-                                    msg.recycle();
+                                    socket.getOutputStream().write(sendMessage.getBytes());
                                     break;
                             }
                         } catch (Exception e) {
-                            //e.printStackTrace();
+                            getLooper().quit();
                         }
                     }
                 };
+                Looper.loop();
 
 
-                new ManageSocket(mmSocket).start();
+
 
             } catch (IOException connectException) {
                 // Unable to connect; close the socket and get out
                 try {
-                    mmSocket.close();
+                    socket.close();
                 } catch (IOException closeException) { }
                 //return;
             }
@@ -264,49 +266,44 @@ public class BlueToothActivity extends AppCompatActivity {
 
 
     private class ManageSocket extends Thread {
-        private  BluetoothSocket mmsocket;
+
         public ManageSocket() {
             super();
         }
-        public  ManageSocket(BluetoothSocket bt_socket) {
-            mmsocket = bt_socket;
-        }
+
         @Override
         public void run() {
             while (IsOpen) {
-                // Do work to manage the connection (in a separate thread)
                 try {
-                    while (true) {
                         byte[] buffer = new byte[1024];
-                        mmsocket.getInputStream().read(buffer);
-                        //在这里处理byte转string类型
-                        String conv = "";
-                        char c;
-                        for (int i = 0; i < 1024; i++) {
-                            if (buffer[i] == 36) {
-                                break;
+                        if (socket.getInputStream().read(buffer) != -1) {
+                            //在这里处理byte转string类型
+                            String conv = "";
+                            char c;
+                            for (int i = 0; i < 1024; i++) {
+                                if (buffer[i] == 36) {
+                                    break;
+                                }
+                                c = (char) buffer[i];
+                                conv = conv + c;
                             }
-                            c = (char) buffer[i];
-                            conv = conv + c;
+                            Log.i("MSGVG", conv);
                         }
-                        Log.i("MSGVG", conv);
-                    }
+
                 } catch (IOException e) {
                     //e.printStackTrace();
                 }
             }
             try {
-                mmsocket.close();
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
+                socket.close();
+            } catch (IOException e) {}
         }
     }
 
     private class AcceptThread extends Thread {
         private final BluetoothServerSocket mmServerSocket;
         private String sendMessage = "";
-        private BluetoothSocket socket;
+
         public AcceptThread() {
             // Use a temporary object that is later assigned to mmServerSocket,
             // because mmServerSocket is final
@@ -321,54 +318,39 @@ public class BlueToothActivity extends AppCompatActivity {
         public void run() {
             //BluetoothSocket socket;
             // Keep listening until exception occurs or a socket is returned
-            while (true) {
-                try {
-                    socket = mmServerSocket.accept();
-                    HandlerThread handlerthread = new HandlerThread("ReceiveAndPush");
-                    handlerthread.start();
-                    subhandler = new Handler(handlerthread.getLooper()) {
-                        @Override
-                        public void handleMessage(Message msg) {
-                            try {
-                                switch (msg.what) {
-                                    //msg send
-                                    case 0:
-                                        sendMessage = msg.obj.toString();
-                                        socket.getOutputStream().write(sendMessage.getBytes());
-                                        msg.recycle();
-                                        break;
-                                }
-                            } catch (Exception e) {
-                                e.printStackTrace();
-                            }
-                        }
-                    };
-                } catch (IOException e) {
-                    break;
-                }
-                // If a connection was accepted
-                if (socket != null) {
-                    try {
-                        OutputStream outputStream = socket.getOutputStream();
-                        String str = "i,M JOHNWONG$";
-                        outputStream.write(str.getBytes());
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    }
-                    IsOpen = true;
-                    new ManageSocket(socket).start();
-                }
-                break;
+
+            try {
+                socket = mmServerSocket.accept();
             }
+            catch (IOException e) {
+
+            }
+            //接受线程的开启
+            new ManageSocket().start();
+
+            Looper.prepare();
+            subhandler = new Handler() {
+                @Override
+                public void handleMessage(Message msg) {
+                    try {
+                        switch (msg.what) {
+                            //msg send
+                            case 0:
+                                sendMessage = msg.obj.toString();
+                                socket.getOutputStream().write(sendMessage.getBytes());
+                                break;
+                        }
+                    } catch (Exception e) {
+                        getLooper().quit();
+                    }
+                }
+            };
+            Looper.loop();
         }
 
         /** Will cancel the listening socket, and cause the thread to finish */
         public void cancel() {
-            try {
-                mmServerSocket.close();
-                subhandler.removeCallbacksAndMessages(null);
-            } catch (IOException e) { }
+            subhandler.removeCallbacksAndMessages(null);
         }
     }
-
 }
